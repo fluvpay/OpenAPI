@@ -1,0 +1,1833 @@
+openapi: 3.1.0
+info:
+  title: FluvPay API
+  version: v1
+  description: 'API REST da FluvPay para integradores. Pagamentos PIX, saques, transferências internas
+    e webhooks.
+
+
+    ## Autenticação
+
+    Envie sua API Key no header `Authorization: Bearer fluv_live_...`. O modo (produção ou sandbox) é
+    derivado do prefixo da chave: `fluv_live_` para produção e `fluv_test_` para o sandbox. Chaves têm
+    escopos (ex: `payments.create`, `withdrawals.read`); cada endpoint indica os escopos exigidos.
+
+
+    ## Idempotência
+
+    Operações de escrita (criar cobrança, saque, transferência) aceitam o header `Idempotency-Key`. Reenviar
+    a mesma chave devolve a resposta original em vez de criar um recurso duplicado.
+
+
+    ## Erros
+
+    Todos os erros seguem o envelope `{ "error": { "code", "message", "details", "trace_id" } }`.'
+  contact:
+    name: Suporte FluvPay
+    url: https://docs.fluvpay.com
+  x-logo:
+    url: https://raw.githubusercontent.com/fluvpay/OpenAPI/main/assets/logo.png
+    altText: FluvPay
+    backgroundColor: '#0a0a0a'
+servers:
+- url: https://api.fluvpay.com/api/v1
+  description: Produção e sandbox (o modo vêm do prefixo da chave)
+tags:
+- name: Charges
+  description: 'Cobranças PIX: criar, listar e consultar.'
+- name: Transactions
+  description: Extrato financeiro consolidado (entradas e saídas).
+- name: Withdrawals
+  description: Saques PIX da conta para uma chave PIX.
+- name: Internal Transfers
+  description: Transferências entre contas FluvPay.
+- name: Webhooks
+  description: Catálogo de eventos. A verificação da assinatura é feita no seu servidor (ver guia).
+- name: Sandbox
+  description: Utilitários de teste, disponíveis apenas com chave fluv_test_.
+security:
+- ApiKeyAuth: []
+paths:
+  /api/v1/charges/:
+    post:
+      tags:
+      - Charges
+      summary: Cria uma cobrança PIX
+      operationId: createCharge
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: UUID/ULID único por operação
+          title: Idempotency-Key
+        description: UUID/ULID único por operação
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChargeCreateRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargeResponse'
+        '422':
+          description: 'Dados inválidos (VALIDATION_ERROR) ou estado impeditivo (ex: INSUFFICIENT_BALANCE)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency-Key reutilizada com payload diferente (IDEMPOTENCY_CONFLICT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - payments.create
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `payments.create`.
+
+
+        Requer o header `Idempotency-Key` (UUID/ULID único por operação).
+
+
+        Suporta sandbox: o modo (teste/produção) é derivado do prefixo da chave.'
+      security:
+      - ApiKeyAuth: []
+    get:
+      tags:
+      - Charges
+      summary: Lista cobranças
+      operationId: listCharges
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filtrar por status: pending, paid, expired, cancelled, refunded, failed'
+          title: Status
+        description: 'Filtrar por status: pending, paid, expired, cancelled, refunded, failed'
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 10000
+          minimum: 1
+          description: Página (1-based)
+          default: 1
+          title: Page
+        description: Página (1-based)
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Itens por página (max 100)
+          default: 20
+          title: Per Page
+        description: Itens por página (max 100)
+      - name: sort
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Campo de ordenação. Ex: "-created_at"'
+          title: Sort
+        description: 'Campo de ordenação. Ex: "-created_at"'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargesListResponse'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - payments.read
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `payments.read`.
+
+
+        Suporta sandbox: o modo (teste/produção) é derivado do prefixo da chave.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/charges/{charge_id}:
+    get:
+      tags:
+      - Charges
+      summary: Recupera uma cobrança por ID
+      operationId: getCharge
+      parameters:
+      - name: charge_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Charge Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargeResponse'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Recurso não encontrado (NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - payments.read
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `payments.read`.
+
+
+        Suporta sandbox: o modo (teste/produção) é derivado do prefixo da chave.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/transactions/:
+    get:
+      tags:
+      - Transactions
+      summary: Lista lançamentos do extrato
+      operationId: listTransactions
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 10000
+          minimum: 1
+          description: Página (1-based)
+          default: 1
+          title: Page
+        description: Página (1-based)
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Itens por página (max 100)
+          default: 20
+          title: Per Page
+        description: Itens por página (max 100)
+      - name: sort
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Campo de ordenação. Ex: "-created_at"'
+          title: Sort
+        description: 'Campo de ordenação. Ex: "-created_at"'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse_TransactionResponse_'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - payments.read
+      - transfers.read
+      - withdrawals.read
+      x-scope-logic: any
+      description: 'Escopos exigidos na API Key: `payments.read` OU `transfers.read` OU `withdrawals.read`.
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/transactions/{tx_id}:
+    get:
+      tags:
+      - Transactions
+      summary: Recupera um lançamento por ID
+      operationId: getTransaction
+      parameters:
+      - name: tx_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tx Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Recurso não encontrado (NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - payments.read
+      - transfers.read
+      - withdrawals.read
+      x-scope-logic: any
+      description: 'Escopos exigidos na API Key: `payments.read` OU `transfers.read` OU `withdrawals.read`.
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/withdrawals/:
+    post:
+      tags:
+      - Withdrawals
+      summary: Cria um saque PIX
+      operationId: createWithdrawal
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: UUID/ULID único por operação
+          title: Idempotency-Key
+        description: UUID/ULID único por operação
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawalCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalResponse'
+        '422':
+          description: 'Dados inválidos (VALIDATION_ERROR) ou estado impeditivo (ex: INSUFFICIENT_BALANCE)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency-Key reutilizada com payload diferente (IDEMPOTENCY_CONFLICT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - withdrawals.create
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `withdrawals.create`.
+
+
+        Requer o header `Idempotency-Key` (UUID/ULID único por operação).
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+    get:
+      tags:
+      - Withdrawals
+      summary: Lista saques
+      operationId: listWithdrawals
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filtrar por status: pending, processing, completed, failed'
+          title: Status
+        description: 'Filtrar por status: pending, processing, completed, failed'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalsListResponse'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - withdrawals.read
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `withdrawals.read`.
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/withdrawals/{withdrawal_id}:
+    get:
+      tags:
+      - Withdrawals
+      summary: Recupera um saque por ID
+      operationId: getWithdrawal
+      parameters:
+      - name: withdrawal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Withdrawal Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalResponse'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Recurso não encontrado (NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - withdrawals.read
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `withdrawals.read`.
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/internal-transfers/:
+    post:
+      tags:
+      - Internal Transfers
+      summary: Cria uma transferência interna FluvPay para FluvPay
+      operationId: createInternalTransfer
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: UUID/ULID único por operação
+          title: Idempotency-Key
+        description: UUID/ULID único por operação
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalTransferCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalTransferResponse'
+        '422':
+          description: 'Dados inválidos (VALIDATION_ERROR) ou estado impeditivo (ex: INSUFFICIENT_BALANCE)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency-Key reutilizada com payload diferente (IDEMPOTENCY_CONFLICT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - withdrawals.create
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `withdrawals.create`.
+
+
+        Requer o header `Idempotency-Key` (UUID/ULID único por operação).
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+    get:
+      tags:
+      - Internal Transfers
+      summary: Lista transferências internas
+      operationId: listInternalTransfers
+      parameters:
+      - name: direction
+        in: query
+        required: false
+        schema:
+          type: string
+          description: sent (enviadas pelo merchant) ou received (recebidas)
+          default: sent
+          title: Direction
+        description: sent (enviadas pelo merchant) ou received (recebidas)
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalTransfersListResponse'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - transfers.read
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `transfers.read`.
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/internal-transfers/{transfer_id}:
+    get:
+      tags:
+      - Internal Transfers
+      summary: Recupera uma transferência interna por ID
+      operationId: getInternalTransfer
+      parameters:
+      - name: transfer_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Transfer Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalTransferResponse'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Escopo insuficiente ou conta sem permissão (PERMISSION_DENIED / API_KEY_INSUFFICIENT_SCOPE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Recurso não encontrado (NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-required-scopes:
+      - transfers.read
+      x-scope-logic: all
+      description: 'Escopos exigidos na API Key: `transfers.read`.
+
+
+        Não suportado em sandbox: chaves `fluv_test_` recebem 403.'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/test/reset:
+    post:
+      tags:
+      - Sandbox
+      summary: Apaga todos os dados do sandbox (so chave de teste)
+      operationId: resetSandbox
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxResetResponse'
+        '422':
+          description: 'Dados inválidos (VALIDATION_ERROR) ou estado impeditivo (ex: INSUFFICIENT_BALANCE)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      description: Disponível apenas com chave de teste (`fluv_test_`).
+      security:
+      - ApiKeyAuth: []
+  /api/v1/test/scenarios:
+    get:
+      tags:
+      - Sandbox
+      summary: Lista os valores mágicos do sandbox
+      description: 'Endpoint público: não precisa de chave (devs podem consultar facil).
+
+
+        Disponível apenas com chave de teste (`fluv_test_`).'
+      operationId: listSandboxScenarios
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxScenariosResponse'
+        '401':
+          description: Autenticação obrigatória (AUTHENTICATION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+  /api/v1/charges/public/{charge_id}:
+    get:
+      tags:
+      - Charges
+      summary: View pública de uma cobrança (sem auth, para a página de pagamento)
+      description: 'Retorna a view pública de uma charge pra renderizacao da página
+
+        de pagamento que o lojista compartilha (via link/whatsapp).
+
+
+        Sem auth: ID eh ULID 26 chars não-sequencial, dificultando enumeracao.
+
+        Resposta enxuta: sem merchant_id, customer, fees, metadata. So o
+
+        necessario pra mostrar QR + brcode + status.
+
+
+        Endpoint público, sem autenticação.
+
+
+        Suporta sandbox: o modo (teste/produção) é derivado do prefixo da chave.'
+      operationId: getPublicCharge
+      parameters:
+      - name: charge_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Charge Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargePublicView'
+        '422':
+          description: Parâmetros inválidos (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Recurso não encontrado (NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security: []
+  /api/v1/webhooks/events:
+    get:
+      tags:
+      - Webhooks
+      summary: Lista os tipos de evento de webhook disponíveis
+      operationId: listWebhookEvents
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEventsResponse'
+        '429':
+          description: Rate limit excedido (RATE_LIMITED). Veja o header Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      description: 'Endpoint público, sem autenticação.
+
+
+        Suporta sandbox: o modo (teste/produção) é derivado do prefixo da chave.'
+      security: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: API Key da FluvPay. Use `fluv_live_...` para produção ou `fluv_test_...` para sandbox.
+  schemas:
+    ChargeCreateRequest:
+      properties:
+        amount_cents:
+          type: integer
+          maximum: 100000.0
+          minimum: 100.0
+          title: Amount Cents
+          description: Valor em centavos (mín R$ 1,00, máx R$ 1.000,00)
+        description:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Description
+        customer:
+          anyOf:
+          - $ref: '#/components/schemas/ChargeCustomerInput'
+          - type: 'null'
+        expires_in_seconds:
+          anyOf:
+          - type: integer
+            maximum: 604800.0
+            minimum: 60.0
+          - type: 'null'
+          title: Expires In Seconds
+          description: Tempo de expiração em segundos. Usa o padrão do processador se omitido.
+        affiliate_code:
+          anyOf:
+          - type: string
+            maxLength: 24
+            minLength: 4
+          - type: 'null'
+          title: Affiliate Code
+          description: Código de afiliado opcional. Se válido, registra comissão quando pago.
+        split_rule_id:
+          anyOf:
+          - type: string
+            maxLength: 32
+            minLength: 20
+          - type: 'null'
+          title: Split Rule Id
+          description: ID de uma regra de split do merchant. Se setado, rateia entre os recipients quando
+            pago.
+        pass_fee_to_payer:
+          type: boolean
+          title: Pass Fee To Payer
+          description: Repassar a taxa pro pagador (soma no QR/PIX). Default ligado.
+          default: true
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      additionalProperties: false
+      type: object
+      required:
+      - amount_cents
+      title: ChargeCreateRequest
+      description: Criar nova cobrança PIX.
+    ChargeCustomerInput:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Name
+        email:
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
+          title: Email
+        document:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Document
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Phone
+      additionalProperties: false
+      type: object
+      title: ChargeCustomerInput
+    ChargePublicView:
+      properties:
+        id:
+          type: string
+          title: Id
+        amount_cents:
+          type: integer
+          title: Amount Cents
+        currency:
+          type: string
+          title: Currency
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        status:
+          type: string
+          enum:
+          - pending
+          - paid
+          - expired
+          - cancelled
+          - refunded
+          title: Status
+        payment_method:
+          type: string
+          const: pix
+          title: Payment Method
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        paid_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Paid At
+        pix_qr_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pix Qr Code
+          description: Imagem QR Code em base64
+        pix_copy_paste:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pix Copy Paste
+          description: Código copia-e-cola PIX
+        merchant_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Merchant Name
+          description: Nome do lojista (pra mostrar 'Pagar para X')
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - amount_cents
+      - currency
+      - status
+      - payment_method
+      - created_at
+      title: ChargePublicView
+      description: Visão pública e reduzida de uma cobrança, sem dados sensíveis. Use na página de pagamento
+        compartilhada com o pagador.
+    ChargeResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        merchant_id:
+          type: string
+          title: Merchant Id
+        amount_cents:
+          type: integer
+          title: Amount Cents
+        currency:
+          type: string
+          title: Currency
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        customer:
+          anyOf:
+          - $ref: '#/components/schemas/ChargeCustomerInput'
+          - type: 'null'
+        status:
+          type: string
+          enum:
+          - pending
+          - paid
+          - expired
+          - cancelled
+          - refunded
+          title: Status
+        payment_method:
+          type: string
+          const: pix
+          title: Payment Method
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        paid_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Paid At
+        pix_qr_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pix Qr Code
+          description: Imagem QR Code em base64
+        pix_copy_paste:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pix Copy Paste
+          description: Código copia-e-cola PIX
+        fee_processor_cents:
+          type: integer
+          title: Fee Processor Cents
+        fee_platform_cents:
+          type: integer
+          title: Fee Platform Cents
+        net_amount_cents:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Net Amount Cents
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - merchant_id
+      - amount_cents
+      - currency
+      - status
+      - payment_method
+      - fee_processor_cents
+      - fee_platform_cents
+      - metadata
+      - created_at
+      - updated_at
+      title: ChargeResponse
+      description: Detalhes de uma cobrança.
+    InternalTransferCreate:
+      properties:
+        amount_cents:
+          type: integer
+          maximum: 10000000.0
+          minimum: 100.0
+          title: Amount Cents
+          description: Valor em centavos (mín R$ 1,00, máx R$ 100.000,00)
+        recipient_email:
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
+          title: Recipient Email
+        recipient_merchant_id:
+          anyOf:
+          - type: string
+            maxLength: 26
+            minLength: 26
+          - type: 'null'
+          title: Recipient Merchant Id
+          description: ID ULID do merchant destinatario (26 chars)
+        description:
+          anyOf:
+          - type: string
+            maxLength: 140
+          - type: 'null'
+          title: Description
+      additionalProperties: false
+      type: object
+      required:
+      - amount_cents
+      title: InternalTransferCreate
+      description: 'Payload para iniciar uma transferência interna.
+
+
+        Exige exatamente um entre recipient_email e recipient_merchant_id.
+
+        amount_cents cap em R$ 100.000,00 (mesmo teto inicial das outras
+
+        operações); pode ser revisto pelo time de produto quando o sistema
+
+        amadurecer.'
+    InternalTransferResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        from_merchant_id:
+          type: string
+          title: From Merchant Id
+        to_merchant_id:
+          type: string
+          title: To Merchant Id
+        to_merchant_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: To Merchant Name
+        amount_cents:
+          type: integer
+          title: Amount Cents
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        status:
+          type: string
+          enum:
+          - completed
+          - failed
+          - reversed
+          title: Status
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - from_merchant_id
+      - to_merchant_id
+      - amount_cents
+      - status
+      - created_at
+      title: InternalTransferResponse
+      description: Detalhes de uma transferência interna já registrada.
+    PaginatedResponse_TransactionResponse_:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/TransactionResponse'
+          type: array
+          title: Data
+        page:
+          type: integer
+          title: Page
+        per_page:
+          type: integer
+          title: Per Page
+        total:
+          type: integer
+          title: Total
+        has_next:
+          type: boolean
+          title: Has Next
+        has_prev:
+          type: boolean
+          title: Has Prev
+      type: object
+      required:
+      - data
+      - page
+      - per_page
+      - total
+      - has_next
+      - has_prev
+      title: PaginatedResponse[TransactionResponse]
+    TransactionResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        merchant_id:
+          type: string
+          title: Merchant Id
+        charge_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Charge Id
+        type:
+          type: string
+          enum:
+          - charge
+          - refund
+          - payout
+          - fee
+          - adjustment
+          - transfer_internal
+          - crypto_payout
+          title: Type
+        direction:
+          type: string
+          enum:
+          - credit
+          - debit
+          title: Direction
+        amount_cents:
+          type: integer
+          title: Amount Cents
+        fee_cents:
+          type: integer
+          title: Fee Cents
+        net_amount_cents:
+          type: integer
+          title: Net Amount Cents
+        status:
+          type: string
+          enum:
+          - pending
+          - completed
+          - failed
+          title: Status
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        counterparty_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Counterparty Name
+        counterparty_document_masked:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Counterparty Document Masked
+        counterparty_pix_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Counterparty Pix Key
+      type: object
+      required:
+      - id
+      - merchant_id
+      - type
+      - direction
+      - amount_cents
+      - fee_cents
+      - net_amount_cents
+      - status
+      - metadata
+      - created_at
+      title: TransactionResponse
+      description: Linha do extrato exposta na API.
+    WithdrawalCreate:
+      properties:
+        amount_cents:
+          type: integer
+          maximum: 10000000.0
+          minimum: 100.0
+          title: Amount Cents
+          description: Valor em centavos (mín R$ 1,00, máx R$ 100.000,00)
+        pix_key:
+          type: string
+          maxLength: 140
+          minLength: 1
+          title: Pix Key
+        pix_key_type:
+          type: string
+          enum:
+          - cpf
+          - cnpj
+          - email
+          - phone
+          - evp
+          title: Pix Key Type
+        description:
+          anyOf:
+          - type: string
+            maxLength: 140
+          - type: 'null'
+          title: Description
+      additionalProperties: false
+      type: object
+      required:
+      - amount_cents
+      - pix_key
+      - pix_key_type
+      title: WithdrawalCreate
+      description: Payload para criar um saque PIX. amount_cents é o valor bruto em centavos (cap de R$
+        100.000,00). pix_key + pix_key_type identificam a chave PIX de destino. description é opcional.
+    WithdrawalResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        status:
+          type: string
+          enum:
+          - pending
+          - processing
+          - completed
+          - failed
+          title: Status
+        amount_cents:
+          type: integer
+          title: Amount Cents
+        fee_cents:
+          type: integer
+          title: Fee Cents
+        net_cents:
+          type: integer
+          title: Net Cents
+        pix_key:
+          type: string
+          title: Pix Key
+        pix_key_type:
+          type: string
+          enum:
+          - cpf
+          - cnpj
+          - email
+          - phone
+          - evp
+          title: Pix Key Type
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Failure Reason
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - id
+      - status
+      - amount_cents
+      - fee_cents
+      - net_cents
+      - pix_key
+      - pix_key_type
+      - created_at
+      title: WithdrawalResponse
+      description: Detalhes de uma solicitacao de saque.
+    ChargeListItem:
+      type: object
+      description: Versao enxuta de cobrança usada em listagens.
+      properties:
+        id:
+          type: string
+        amount_cents:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - paid
+          - expired
+          - cancelled
+          - refunded
+          title: Status
+        description:
+          type: string
+          nullable: true
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - amount_cents
+      - currency
+      - status
+      - created_at
+    ChargesListResponse:
+      type: object
+      description: Envelope paginado de cobranças (page/per_page).
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChargeListItem'
+        page:
+          type: integer
+        per_page:
+          type: integer
+        total:
+          type: integer
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+      required:
+      - data
+      - page
+      - per_page
+      - total
+      - has_next
+      - has_prev
+    WithdrawalsListResponse:
+      type: object
+      description: Envelope de saques (limit/offset).
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WithdrawalResponse'
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total:
+          type: integer
+      required:
+      - data
+      - limit
+      - offset
+      - total
+    InternalTransfersListResponse:
+      type: object
+      description: Envelope de transferências internas (limit/offset).
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InternalTransferResponse'
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total:
+          type: integer
+      required:
+      - data
+      - limit
+      - offset
+      - total
+    SandboxResetResponse:
+      type: object
+      properties:
+        reset:
+          type: boolean
+        deleted_charges:
+          type: integer
+        merchant_id:
+          type: string
+      required:
+      - reset
+      - deleted_charges
+      - merchant_id
+    SandboxScenariosResponse:
+      type: object
+      properties:
+        info:
+          type: string
+        scenarios:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            description: 'Valor mágico do sandbox: um amount_cents e o comportamento simulado.'
+      required:
+      - info
+      - scenarios
+    WebhookEventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+            - charge.created
+            - charge.paid
+            - charge.expired
+            - charge.cancelled
+            - charge.refunded
+            - payout.created
+            - payout.completed
+            - payout.failed
+      required:
+      - events
+    ErrorDetail:
+      type: object
+      properties:
+        field:
+          type: string
+          nullable: true
+        message:
+          type: string
+        type:
+          type: string
+          nullable: true
+      required:
+      - message
+    ErrorBody:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 'Código canônico do erro. Ex: VALIDATION_ERROR, NOT_FOUND, RATE_LIMITED, IDEMPOTENCY_CONFLICT,
+            PERMISSION_DENIED, INSUFFICIENT_BALANCE.'
+        message:
+          type: string
+          description: Mensagem legível em PT-BR.
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+          nullable: true
+        trace_id:
+          type: string
+          nullable: true
+          description: ID da requisição para correlacionar nos logs.
+      required:
+      - code
+      - message
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+      required:
+      - error
+      example:
+        error:
+          code: VALIDATION_ERROR
+          message: Dados inválidos
+          details:
+          - field: amount_cents
+            message: Input should be greater than or equal to 100
+            type: greater_than_equal
+          trace_id: 01J...
